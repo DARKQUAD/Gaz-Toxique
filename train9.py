@@ -62,18 +62,39 @@ def balance_humidity(dfX: pd.DataFrame, dfY: pd.DataFrame,
     dfX = dfX.reset_index(drop=True)
     dfY = dfY.reset_index(drop=True)
 
-    n_test_h0  = (dftest['Humidity'] <= 0.1).sum()
-    n_train_h0 = (dfX['Humidity']    <= 0.1).sum()
+    n_test_h0   = (dftest['Humidity'] <= 0.173).sum()
+    n_test_tot  = len(dftest)
+    n_train_h0  = (dfX['Humidity']    <= 0.173).sum()
+    n_train_tot = len(dfX)
 
-    print(f"  Humidity≈0 → train : {n_train_h0} | test : {n_test_h0}")
+    # Ratios de proportion h0 dans chaque set
+    ratio_test  = n_test_h0  / max(n_test_tot, 1)
+    ratio_train = n_train_h0 / max(n_train_tot, 1)
 
-    if n_train_h0 > n_test_h0:
-        mask_h0  = dfX['Humidity'] <= 0.173
-        h0_idx   = dfX[mask_h0].index
+    print(f"  Humidity≈0 → train : {n_train_h0}/{n_train_tot} ({ratio_train:.3%}) "
+          f"| test : {n_test_h0}/{n_test_tot} ({ratio_test:.3%})")
+
+    if ratio_train > ratio_test and n_train_h0 > 0:
+        mask_h0    = dfX['Humidity'] <= 0.173
+        h0_idx     = dfX[mask_h0].index
         not_h0_idx = dfX[~mask_h0].index
+        n_not_h0   = len(not_h0_idx)
+
+        # On veut : n_h0_target / (n_h0_target + n_not_h0) == ratio_test
+        # => n_h0_target = ratio_test * n_not_h0 / (1 - ratio_test)
+        if ratio_test < 1.0:
+            n_h0_target = int(round(ratio_test * n_not_h0 / (1 - ratio_test)))
+        else:
+            n_h0_target = n_train_h0
+
+        # Borne de sécurité
+        n_h0_target = max(1, min(n_h0_target, n_train_h0))
+
+        print(f"  Cible proportionnelle h0 : {n_h0_target} "
+              f"(ratio cible ≈ {ratio_test:.3%})")
 
         h0_down_idx = pd.Index(
-            np.random.RandomState(42).choice(h0_idx, size=n_test_h0, replace=False)
+            np.random.RandomState(42).choice(h0_idx, size=n_h0_target, replace=False)
         )
 
         keep_idx = h0_down_idx.append(not_h0_idx)
@@ -82,13 +103,16 @@ def balance_humidity(dfX: pd.DataFrame, dfY: pd.DataFrame,
         dfX_bal = dfX.loc[keep_idx].reset_index(drop=True)
         dfY_bal = dfY.loc[keep_idx].reset_index(drop=True)
 
-        print(f"  Après rééquilibrage → {len(dfX_bal)} lignes")
+        new_ratio = (dfX_bal['Humidity'] <= 0.173).mean()
+        print(f"  Après rééquilibrage → {len(dfX_bal)} lignes "
+              f"(ratio h0 effectif : {new_ratio:.3%})")
     else:
         dfX_bal = dfX.reset_index(drop=True)
         dfY_bal = dfY.reset_index(drop=True)
         print("  Pas de rééquilibrage nécessaire")
 
     return dfX_bal, dfY_bal
+
 
 # ============================================================
 # 4. FEATURE ENGINEERING PARALLÈLE
